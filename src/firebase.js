@@ -11,14 +11,5 @@ const firebaseConfig = {
   appId: "1:779561478371:web:549e7409e67d1b06fbbdd6",
 };
 
-let app;
-let db;
-
-try {
-  app = initializeApp(firebaseConfig);
-  db = getDatabase(app);
-} catch (e) {
-  console.error("Firebase init failed:", e);
-}
-
-export { db };
+const app = initializeApp(firebaseConfig);
+export const db = getDatabase(app);
