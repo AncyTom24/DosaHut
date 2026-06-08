@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
-import { ref, onValue, push, update, remove, get } from "firebase/database";
+import { ref, onValue, push, update, set, get } from "firebase/database";
 
 const MENU = [
   { id: 1, name: "Masala Dosa", price: 9.99, emoji: "🥙", desc: "Crispy with spiced potato filling" },
@@ -13,15 +13,16 @@ const MENU = [
 
 const TAX_RATE = 0.13;
 
-// ── Firebase hook — real-time sync across all devices ──
 function useFirebaseOrders() {
   const [orders, setOrders] = useState([]);
   const [connected, setConnected] = useState(false);
-  const ordersRef = ref(db, "orders");
 
   useEffect(() => {
+    if (!db) return;
     const connRef = ref(db, ".info/connected");
     const unsubConn = onValue(connRef, (snap) => setConnected(!!snap.val()));
+
+    const ordersRef = ref(db, "orders");
     const unsubOrders = onValue(ordersRef, (snap) => {
       const data = snap.val();
       if (data) {
@@ -36,22 +37,17 @@ function useFirebaseOrders() {
   }, []);
 
   const addOrder = async (order) => {
-    // Get next order number from Firebase atomically
     const counterRef = ref(db, "counter");
     const snap = await get(counterRef);
     const num = (snap.val() || 0) + 1;
-    await update(counterRef, { "": num }); // just set as value
-    // Actually set counter properly
-    const { set } = await import("firebase/database");
     await set(counterRef, num);
     const newOrder = { ...order, num };
-    await push(ordersRef, newOrder);
+    await push(ref(db, "orders"), newOrder);
     return num;
   };
 
   const markDone = async (fbKey) => {
-    const orderRef = ref(db, `orders/${fbKey}`);
-    await update(orderRef, {
+    await update(ref(db, `orders/${fbKey}`), {
       status: "done",
       completedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     });
@@ -60,8 +56,7 @@ function useFirebaseOrders() {
   const clearDone = async (doneOrders) => {
     const updates = {};
     doneOrders.forEach(o => { updates[`orders/${o.fbKey}`] = null; });
-    const { update: dbUpdate } = await import("firebase/database");
-    await dbUpdate(ref(db), updates);
+    await update(ref(db), updates);
   };
 
   return { orders, connected, addOrder, markDone, clearDone };
@@ -95,10 +90,7 @@ export default function DosaPos() {
     if (cartCount === 0) return;
     const orderData = {
       items: Object.entries(cart).map(([id, qty]) => ({ ...MENU.find(m => m.id === Number(id)), qty })),
-      paymentType,
-      subtotal,
-      tax,
-      total,
+      paymentType, subtotal, tax, total,
       status: "pending",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       date: new Date().toLocaleDateString([], { month: "short", day: "numeric" }),
@@ -133,8 +125,7 @@ export default function DosaPos() {
     <div style={{
       minHeight: "100vh",
       background: "linear-gradient(160deg, #1a0a00 0%, #2d1200 50%, #1a0800 100%)",
-      fontFamily: "'Georgia', serif",
-      color: "#fff",
+      fontFamily: "'Georgia', serif", color: "#fff",
     }}>
       <div style={{
         position: "fixed", inset: 0, opacity: 0.04,
@@ -160,7 +151,6 @@ export default function DosaPos() {
                 {pending.length} pending
               </div>
             )}
-            {/* Connection dot */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, opacity: 0.8 }}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: connected ? "#4caf50" : "#f44336" }} />
               {connected ? "Live" : "Offline"}
@@ -176,25 +166,22 @@ export default function DosaPos() {
         </div>
       </div>
 
-      {/* Flash */}
       {(flash || completedFlash) && (
         <div style={{
           position: "fixed", top: 90, left: "50%", transform: "translateX(-50%)",
           background: flash ? "#2d7a2d" : "#1565c0",
           color: "#fff", padding: "11px 22px", borderRadius: 30,
           fontWeight: "bold", fontSize: 14, zIndex: 999,
-          boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
-          animation: "fadeIn 0.3s ease", whiteSpace: "nowrap",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.4)", whiteSpace: "nowrap",
         }}>
           {flash || completedFlash}
         </div>
       )}
 
-      {/* ── ORDER VIEW ── */}
+      {/* ORDER VIEW */}
       {view === "order" && (
         <div style={{ padding: "16px 14px", maxWidth: 500, margin: "0 auto" }}>
           <div style={{ fontSize: 11, color: "#ffb38a", letterSpacing: 2, marginBottom: 12, textTransform: "uppercase" }}>Today's Menu</div>
-
           {MENU.map(item => (
             <div key={item.id} style={{
               background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,120,0,0.2)",
@@ -261,42 +248,31 @@ export default function DosaPos() {
         </div>
       )}
 
-      {/* ── KITCHEN VIEW ── */}
+      {/* KITCHEN VIEW */}
       {view === "kitchen" && (
         <div style={{ padding: "16px 14px", maxWidth: 500, margin: "0 auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: "#ffb38a", letterSpacing: 2, textTransform: "uppercase" }}>
-              Queue — {pending.length} pending
-            </div>
+            <div style={{ fontSize: 11, color: "#ffb38a", letterSpacing: 2, textTransform: "uppercase" }}>Queue — {pending.length} pending</div>
             {done.length > 0 && (
               <button onClick={() => clearDone(done)} style={{
                 background: "transparent", border: "1px solid rgba(255,255,255,0.2)",
-                color: "rgba(255,255,255,0.5)", fontSize: 11, padding: "4px 10px",
-                borderRadius: 20, cursor: "pointer",
+                color: "rgba(255,255,255,0.5)", fontSize: 11, padding: "4px 10px", borderRadius: 20, cursor: "pointer",
               }}>Clear {done.length} done</button>
             )}
           </div>
-
           {orders.length === 0 && (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)", fontSize: 15 }}>
               <div style={{ fontSize: 48, marginBottom: 12 }}>🍽</div>
               No orders yet. Waiting for customers!
             </div>
           )}
-
           {pending.map((order, i) => (
             <div key={order.fbKey} style={{
               background: i === 0 ? "rgba(230,92,0,0.2)" : "rgba(255,255,255,0.05)",
               border: "1px solid " + (i === 0 ? "rgba(230,92,0,0.6)" : "rgba(255,255,255,0.08)"),
               borderRadius: 14, padding: "14px 16px", marginBottom: 10, position: "relative",
             }}>
-              {i === 0 && (
-                <div style={{
-                  position: "absolute", top: -1, right: 14, background: "#e65c00",
-                  fontSize: 10, fontWeight: "bold", padding: "2px 10px",
-                  borderRadius: "0 0 8px 8px", letterSpacing: 1,
-                }}>NEXT UP</div>
-              )}
+              {i === 0 && <div style={{ position: "absolute", top: -1, right: 14, background: "#e65c00", fontSize: 10, fontWeight: "bold", padding: "2px 10px", borderRadius: "0 0 8px 8px", letterSpacing: 1 }}>NEXT UP</div>}
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                 <span style={{ fontWeight: "bold", fontSize: 16 }}>Order #{order.num}</span>
                 <span style={{ fontSize: 12, color: "#ffb38a" }}>{order.time}</span>
@@ -305,34 +281,21 @@ export default function DosaPos() {
                 <div key={item.id} style={{ fontSize: 14, marginBottom: 3 }}>{item.emoji} {item.name} × {item.qty}</div>
               ))}
               <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <PayTag type={order.paymentType} />
-                  <span style={{ fontWeight: "bold", color: "#ffcc44" }}>${order.total.toFixed(2)}</span>
-                </div>
-                <button onClick={() => handleMarkDone(order)} style={{
-                  background: "linear-gradient(135deg, #2d7a00, #4caf00)", border: "none", borderRadius: 10,
-                  color: "#fff", fontSize: 13, fontWeight: "bold", padding: "8px 16px",
-                  cursor: "pointer", boxShadow: "0 2px 10px rgba(76,175,0,0.4)",
-                }}>✓ Done</button>
+                <div><PayTag type={order.paymentType} /><span style={{ fontWeight: "bold", color: "#ffcc44" }}>${order.total.toFixed(2)}</span></div>
+                <button onClick={() => handleMarkDone(order)} style={{ background: "linear-gradient(135deg, #2d7a00, #4caf00)", border: "none", borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: "bold", padding: "8px 16px", cursor: "pointer" }}>✓ Done</button>
               </div>
             </div>
           ))}
-
           {done.length > 0 && (
             <>
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", letterSpacing: 2, margin: "14px 0 8px", textTransform: "uppercase" }}>Completed</div>
               {done.map(order => (
-                <div key={order.fbKey} style={{
-                  background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
-                  borderRadius: 14, padding: "10px 16px", marginBottom: 8, opacity: 0.45,
-                }}>
+                <div key={order.fbKey} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 14, padding: "10px 16px", marginBottom: 8, opacity: 0.45 }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ fontSize: 14 }}>✓ Order #{order.num}</span>
                     <span style={{ fontSize: 13, color: "#ffcc44" }}>${order.total.toFixed(2)}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 3 }}>
-                    {order.items.map(i => `${i.name} ×${i.qty}`).join(", ")}
-                  </div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 3 }}>{order.items.map(i => `${i.name} ×${i.qty}`).join(", ")}</div>
                 </div>
               ))}
             </>
@@ -340,18 +303,16 @@ export default function DosaPos() {
         </div>
       )}
 
-      {/* ── HISTORY VIEW ── */}
+      {/* HISTORY VIEW */}
       {view === "history" && (
         <div style={{ padding: "16px 14px", maxWidth: 500, margin: "0 auto" }}>
           <div style={{ fontSize: 11, color: "#ffb38a", letterSpacing: 2, marginBottom: 12, textTransform: "uppercase" }}>Sales Summary</div>
-
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
             <StatCard label="Total Revenue" value={`$${totalRevenue.toFixed(2)}`} color="#ffcc44" icon="💰" />
             <StatCard label="Orders Completed" value={done.length} color="#4caf50" icon="✅" />
             <StatCard label="HST Collected" value={`$${totalTax.toFixed(2)}`} color="#64b5f6" icon="🏛" />
             <StatCard label="Pending Orders" value={pending.length} color="#ff8c00" icon="⏳" />
           </div>
-
           {done.length > 0 && (
             <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,120,0,0.2)", borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: "#ffb38a", letterSpacing: 2, marginBottom: 12, textTransform: "uppercase" }}>Payment Breakdown</div>
@@ -382,7 +343,6 @@ export default function DosaPos() {
               )}
             </div>
           )}
-
           {Object.keys(itemCounts).length > 0 && (
             <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,120,0,0.2)", borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: "#ffb38a", letterSpacing: 2, marginBottom: 10, textTransform: "uppercase" }}>Item Popularity</div>
@@ -403,18 +363,12 @@ export default function DosaPos() {
               })}
             </div>
           )}
-
-          <div style={{ fontSize: 11, color: "#ffb38a", letterSpacing: 2, marginBottom: 10, textTransform: "uppercase" }}>
-            All Orders ({orders.length})
-          </div>
-
+          <div style={{ fontSize: 11, color: "#ffb38a", letterSpacing: 2, marginBottom: 10, textTransform: "uppercase" }}>All Orders ({orders.length})</div>
           {orders.length === 0 && (
             <div style={{ textAlign: "center", padding: "40px 20px", color: "rgba(255,255,255,0.3)", fontSize: 14 }}>
-              <div style={{ fontSize: 40, marginBottom: 10 }}>📋</div>
-              No orders placed yet
+              <div style={{ fontSize: 40, marginBottom: 10 }}>📋</div>No orders placed yet
             </div>
           )}
-
           {history.map(order => (
             <div key={order.fbKey} style={{
               background: order.status === "done" ? "rgba(255,255,255,0.04)" : "rgba(230,92,0,0.1)",
@@ -424,12 +378,7 @@ export default function DosaPos() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontWeight: "bold", fontSize: 15 }}>#{order.num}</span>
-                  <span style={{
-                    fontSize: 10, padding: "2px 7px", borderRadius: 20, fontWeight: "bold",
-                    background: order.status === "done" ? "rgba(76,175,0,0.25)" : "rgba(255,140,0,0.25)",
-                    border: "1px solid " + (order.status === "done" ? "rgba(76,175,0,0.5)" : "rgba(255,140,0,0.5)"),
-                    color: order.status === "done" ? "#a5d6a7" : "#ffb74d",
-                  }}>
+                  <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 20, fontWeight: "bold", background: order.status === "done" ? "rgba(76,175,0,0.25)" : "rgba(255,140,0,0.25)", border: "1px solid " + (order.status === "done" ? "rgba(76,175,0,0.5)" : "rgba(255,140,0,0.5)"), color: order.status === "done" ? "#a5d6a7" : "#ffb74d" }}>
                     {order.status === "done" ? "✓ Done" : "⏳ Pending"}
                   </span>
                 </div>
@@ -438,91 +387,38 @@ export default function DosaPos() {
                   <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{order.date} · {order.time}</div>
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>
-                {order.items.map(i => `${i.emoji} ${i.name} ×${i.qty}`).join("  ·  ")}
-              </div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>{order.items.map(i => `${i.emoji} ${i.name} ×${i.qty}`).join("  ·  ")}</div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <PayTag type={order.paymentType} />
                   {order.tax > 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>HST ${order.tax.toFixed(2)}</span>}
                 </div>
-                {order.completedAt && (
-                  <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>Completed {order.completedAt}</span>
-                )}
+                {order.completedAt && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>Completed {order.completedAt}</span>}
               </div>
             </div>
           ))}
         </div>
       )}
-
-      <style>{`
-        @keyframes fadeIn { from { opacity:0; transform:translateX(-50%) translateY(-10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
-      `}</style>
+      <style>{`@keyframes fadeIn { from { opacity:0; transform:translateX(-50%) translateY(-10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`}</style>
     </div>
   );
 }
 
 function TabBtn({ active, onClick, children }) {
-  return (
-    <button onClick={onClick} style={{
-      flex: 1, background: active ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)",
-      border: "1px solid " + (active ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.1)"),
-      borderRadius: 20, color: "#fff", fontSize: 12, padding: "6px 8px",
-      cursor: "pointer", fontFamily: "inherit", fontWeight: active ? "bold" : "normal",
-    }}>{children}</button>
-  );
+  return <button onClick={onClick} style={{ flex: 1, background: active ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)", border: "1px solid " + (active ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.1)"), borderRadius: 20, color: "#fff", fontSize: 12, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", fontWeight: active ? "bold" : "normal" }}>{children}</button>;
 }
-
 function PayBtn({ active, onClick, children }) {
-  return (
-    <button onClick={onClick} style={{
-      flex: 1, background: active ? "rgba(230,92,0,0.3)" : "rgba(255,255,255,0.05)",
-      border: "2px solid " + (active ? "#e65c00" : "rgba(255,255,255,0.1)"),
-      borderRadius: 10, color: active ? "#fff" : "rgba(255,255,255,0.5)",
-      padding: "10px 8px", cursor: "pointer", fontFamily: "inherit",
-      fontSize: 13, fontWeight: active ? "bold" : "normal",
-    }}>{children}</button>
-  );
+  return <button onClick={onClick} style={{ flex: 1, background: active ? "rgba(230,92,0,0.3)" : "rgba(255,255,255,0.05)", border: "2px solid " + (active ? "#e65c00" : "rgba(255,255,255,0.1)"), borderRadius: 10, color: active ? "#fff" : "rgba(255,255,255,0.5)", padding: "10px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: active ? "bold" : "normal" }}>{children}</button>;
 }
-
 function PayTag({ type }) {
-  return (
-    <span style={{
-      fontSize: 11, padding: "2px 8px", borderRadius: 20, marginRight: 6,
-      background: type === "card" ? "rgba(30,100,200,0.4)" : "rgba(0,150,0,0.4)",
-      border: "1px solid " + (type === "card" ? "rgba(80,150,255,0.4)" : "rgba(0,200,0,0.3)"),
-    }}>
-      {type === "card" ? "💳 Card" : "💵 Cash"}
-    </span>
-  );
+  return <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, marginRight: 6, background: type === "card" ? "rgba(30,100,200,0.4)" : "rgba(0,150,0,0.4)", border: "1px solid " + (type === "card" ? "rgba(80,150,255,0.4)" : "rgba(0,200,0,0.3)") }}>{type === "card" ? "💳 Card" : "💵 Cash"}</span>;
 }
-
 function StatCard({ label, value, color, icon }) {
-  return (
-    <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,120,0,0.15)", borderRadius: 12, padding: "12px 14px" }}>
-      <div style={{ fontSize: 18, marginBottom: 4 }}>{icon}</div>
-      <div style={{ fontSize: 20, fontWeight: "bold", color }}>{value}</div>
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 2 }}>{label}</div>
-    </div>
-  );
+  return <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,120,0,0.15)", borderRadius: 12, padding: "12px 14px" }}><div style={{ fontSize: 18, marginBottom: 4 }}>{icon}</div><div style={{ fontSize: 20, fontWeight: "bold", color }}>{value}</div><div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 2 }}>{label}</div></div>;
 }
-
 function qtyBtnStyle(bg) {
-  return {
-    background: bg, border: "none", borderRadius: 8, color: "#fff",
-    fontSize: 18, width: 32, height: 32, cursor: "pointer",
-    display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold",
-  };
+  return { background: bg, border: "none", borderRadius: 8, color: "#fff", fontSize: 18, width: 32, height: 32, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold" };
 }
-
 function Row({ label, value, bold, accent, color }) {
-  return (
-    <div style={{
-      display: "flex", justifyContent: "space-between", marginBottom: 5,
-      fontSize: bold ? 16 : 14, fontWeight: bold ? "bold" : "normal",
-      color: accent ? "#ffcc44" : color || "#fff",
-    }}>
-      <span>{label}</span><span>{value}</span>
-    </div>
-  );
+  return <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: bold ? 16 : 14, fontWeight: bold ? "bold" : "normal", color: accent ? "#ffcc44" : color || "#fff" }}><span>{label}</span><span>{value}</span></div>;
 }
