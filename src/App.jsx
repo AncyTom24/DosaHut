@@ -68,7 +68,8 @@ export default function DosaPos() {
   const [paymentType, setPaymentType] = useState("card");
   const [flash, setFlash] = useState(null);
   const [completedFlash, setCompletedFlash] = useState(null);
-  const { orders, connected, addOrder, markDone, clearDone } = useFirebaseOrders();
+  const [placing, setPlacing] = useState(false);
+  const { orders, connected, mode, addOrder, markDone, clearDone } = useOrders();
 
   const addToCart = (item) => setCart(prev => ({ ...prev, [item.id]: (prev[item.id] || 0) + 1 }));
   const removeFromCart = (item) => setCart(prev => {
@@ -87,7 +88,9 @@ export default function DosaPos() {
   const cartCount = Object.values(cart).reduce((a, b) => a + b, 0);
 
   const placeOrder = async () => {
-    if (cartCount === 0) return;
+    if (cartCount === 0 || placing) return;
+    setPlacing(true);
+    setCart({}); // clear cart immediately so button disables and user can't re-tap
     const orderData = {
       items: Object.entries(cart).map(([id, qty]) => ({ ...MENU.find(m => m.id === Number(id)), qty })),
       paymentType, subtotal, tax, total,
@@ -96,10 +99,13 @@ export default function DosaPos() {
       date: new Date().toLocaleDateString([], { month: "short", day: "numeric" }),
       completedAt: null,
     };
-    const num = await addOrder(orderData);
-    setFlash(`Order #${num} sent to kitchen!`);
-    setTimeout(() => setFlash(null), 2500);
-    setCart({});
+    try {
+      const num = await addOrder(orderData);
+      setFlash(`Order #${num} sent to kitchen!`);
+      setTimeout(() => setFlash(null), 2500);
+    } finally {
+      setPlacing(false);
+    }
   };
 
   const handleMarkDone = async (order) => {
@@ -142,7 +148,7 @@ export default function DosaPos() {
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div>
-            <div style={{ fontSize: 17, fontWeight: "bold", letterSpacing: 1 }}>🍽 Dosa Hut</div>
+            <div style={{ fontSize: 17, fontWeight: "bold", letterSpacing: 1 }}>🍽 Dosa Corner</div>
             <div style={{ fontSize: 10, opacity: 0.85 }}>Cambridge Multicultural Festival</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -234,16 +240,16 @@ export default function DosaPos() {
             </div>
           )}
 
-          <button onClick={placeOrder} disabled={cartCount === 0} style={{
+          <button onClick={placeOrder} disabled={cartCount === 0 || placing} style={{
             width: "100%", marginTop: 14,
-            background: cartCount > 0 ? "linear-gradient(135deg, #e65c00, #ff8c00)" : "rgba(255,255,255,0.08)",
+            background: cartCount > 0 && !placing ? "linear-gradient(135deg, #e65c00, #ff8c00)" : "rgba(255,255,255,0.08)",
             border: "none", borderRadius: 14,
-            color: cartCount > 0 ? "#fff" : "rgba(255,255,255,0.3)",
+            color: cartCount > 0 && !placing ? "#fff" : "rgba(255,255,255,0.3)",
             fontSize: 17, fontWeight: "bold", padding: "16px",
-            cursor: cartCount > 0 ? "pointer" : "not-allowed",
-            boxShadow: cartCount > 0 ? "0 4px 20px rgba(230,92,0,0.5)" : "none",
+            cursor: cartCount > 0 && !placing ? "pointer" : "not-allowed",
+            boxShadow: cartCount > 0 && !placing ? "0 4px 20px rgba(230,92,0,0.5)" : "none",
           }}>
-            {cartCount > 0 ? `🍽 Send to Kitchen — $${total.toFixed(2)}` : "Add items to order"}
+            {placing ? "⏳ Sending..." : cartCount > 0 ? `🍽 Send to Kitchen — $${total.toFixed(2)}` : "Add items to order"}
           </button>
         </div>
       )}
