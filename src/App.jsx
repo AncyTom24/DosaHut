@@ -142,7 +142,7 @@ export default function DosaPos() {
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div>
-            <div style={{ fontSize: 17, fontWeight: "bold", letterSpacing: 1 }}>🍽 Dosa Corner</div>
+            <div style={{ fontSize: 17, fontWeight: "bold", letterSpacing: 1 }}>🍽 Dosa Hut</div>
             <div style={{ fontSize: 10, opacity: 0.85 }}>Cambridge Multicultural Festival</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
